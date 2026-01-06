@@ -1,0 +1,37 @@
+[package]
+name = "autonomous_buyback"
+version = "0.1.0"
+edition = "2024_07"
+
+[dependencies]
+starknet = "2.15.1"
+openzeppelin_access = "3.0.0"
+openzeppelin_token = "3.0.0"
+openzeppelin_interfaces = "2.1.0"
+ekubo = { git = "https://github.com/EkuboProtocol/starknet-contracts.git", branch = "scarb-2-15-0" }
+
+[dev-dependencies]
+snforge_std = "0.54.1"
+assert_macros = "2.14.1"
+
+[profile.dev.cairo]
+unstable-add-statements-functions-debug-info = true
+unstable-add-statements-code-locations-debug-info = true
+inlining-strategy = "avoid"
+
+[[target.starknet-contract]]
+sierra = true
+
+[scripts]
+test = "snforge test"
+
+[tool.scarb]
+allow-prebuilt-plugins = ["snforge_std"]
+
+[tool.snforge]
+fuzzer_runs = 256
+
+[[tool.snforge.fork]]
+name = "MAINNET"
+url = "https://api.cartridge.gg/x/starknet/mainnet/rpc/v0_9"
+block_id.tag = "latest"
