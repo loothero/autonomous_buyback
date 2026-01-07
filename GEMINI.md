@@ -1,6 +1,4 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# Autonomous Buyback (Starknet/Cairo)
 
 ## Role & Context
 
@@ -447,68 +445,82 @@ Aim for 90% coverage using:
 
 ## Build and Test Commands
 
+This project implements an autonomous token buyback system for Starknet using Ekubo's TWAMM (Time-Weighted Average Market Maker). It is designed as a modular library following OpenZeppelin's component pattern.
+
+## Project Overview
+
+- **Language:** Cairo
+- **Framework:** Scarb
+- **Testing:** Starknet Foundry (`snforge`)
+- **Core Dependency:** Ekubo Protocol (for TWAMM functionality)
+
+The system allows for permissionless execution of buybacks where any ERC20 token can be swapped for a configured buyback token using DCA (Dollar Cost Averaging) orders on Ekubo.
+
+## Key Commands
+
+### Build & Format
+
 ```bash
 # Build the project
 scarb build
 
-# Run all tests
-scarb test
-
-# Run a specific test by name
-snforge test test_initialization_sets_buyback_token
-
-# Run tests matching a pattern
-snforge test test_buy_back
-
-# Run tests with verbose output
-snforge test -v
-
-# Format code
+# Format code (Starknet/Cairo standard)
 scarb fmt
 
-# Check formatting without modifying
+# Check formatting
 scarb fmt --check
 ```
 
-## Architecture Overview
+### Testing
 
-This is a Cairo library for Starknet that provides autonomous token buybacks via Ekubo's TWAMM (Time-Weighted Average Market Maker). The core design follows OpenZeppelin's component pattern.
+Tests are run using Starknet Foundry (`snforge`).
 
-### Component Structure
+```bash
+# Run all tests
+scarb test
+# OR
+snforge test
 
-**BuybackComponent** (`src/buyback/buyback.cairo`) - The reusable component containing all buyback logic:
+# Run a specific test
+snforge test test_name
 
-- Creates TWAMM DCA orders on Ekubo to swap any ERC20 for a configured buyback token
-- Tracks multiple concurrent orders per sell token using a counter/bookmark pattern
-- First buyback for a token mints an Ekubo position; subsequent buybacks reuse it
-- Permissionless execution: anyone can call `buy_back()` and `claim_buyback_proceeds()`
+# Run tests matching a filter
+snforge test filter_string
 
-**AutonomousBuyback Preset** (`src/presets/autonomous_buyback.cairo`) - A deployable contract combining:
+# Run with verbose output (useful for debugging)
+snforge test -v
+```
 
-- `BuybackComponent` for buyback functionality
-- `OwnableComponent` (OpenZeppelin) for admin access control
-- Admin functions (config updates, emergency withdraw) require owner
+## Architecture
 
-### Key Interfaces
+The project is structured into a reusable component and a deployable preset.
 
-- `IBuyback` - Permissionless functions: `buy_back()`, `claim_buyback_proceeds()`, view functions
-- `IBuybackAdmin` - Owner-only: `set_buyback_order_config()`, `set_treasury()`, `emergency_withdraw_erc20()`
+### 1. Buyback Component
 
-### Storage Naming Convention
+**Path:** `src/buyback/buyback.cairo`
 
-All component storage keys are prefixed with `Buyback_` to avoid collisions when embedded.
+- Contains the core business logic.
+- Creates TWAMM orders on Ekubo.
+- Manages order state and proceeds claiming.
+- **Namespace:** Storage keys use the `Buyback_` prefix.
 
-### Test Organization
+### 2. Autonomous Buyback Preset
 
-- `tests/unit/` - Component behavior tests with mock Ekubo addresses
-- `tests/integration/` - Full contract tests including ownership/access control
-- `tests/helpers/deployment.cairo` - Contract deployment utilities
-- `tests/fixtures/constants.cairo` - Test addresses, mainnet addresses for fork testing, default configs
-- `tests/mocks/` - Mock ERC20 for testing
+**Path:** `src/presets/autonomous_buyback.cairo`
 
-### Dependencies
+- A deployable contract that integrates the `BuybackComponent`.
+- Includes `OwnableComponent` for administration.
+- Exposes admin functions for configuration (e.g., setting the buyback token, treasury).
 
-- `ekubo` - Ekubo Protocol contracts (TWAMM, Positions interfaces)
-- `openzeppelin_access` - OwnableComponent
-- `openzeppelin_token` - ERC20 interfaces
-- `snforge_std` - Testing framework
+## Project Structure
+
+- `src/`: Source code.
+  - `buyback/`: The core component and interface.
+  - `presets/`: Ready-to-deploy contracts.
+- `tests/`: Test suite.
+  - `unit/`: Tests for the component logic (using mocks).
+  - `integration/`: Full contract tests.
+  - `fixtures/`: Constants and setups.
+  - `mocks/`: Mock ERC20 contracts for testing.
+- `Scarb.toml`: Project manifest and dependencies.
+- `snfoundry.toml`: Starknet Foundry configuration.
