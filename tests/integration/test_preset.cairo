@@ -6,7 +6,7 @@
 /// - Per-token configuration management
 /// - End-to-end buyback flow (where possible without real Ekubo)
 use autonomous_buyback::{
-    GlobalBuybackConfig, IBuybackAdminDispatcher, IBuybackAdminDispatcherTrait, IBuybackDispatcher,
+    IBuybackAdminDispatcher, IBuybackAdminDispatcherTrait, IBuybackDispatcher,
     IBuybackDispatcherTrait, TokenBuybackConfig,
 };
 use openzeppelin_interfaces::access::ownable::{IOwnableDispatcher, IOwnableDispatcherTrait};
@@ -64,9 +64,7 @@ fn test_non_owner_cannot_set_global_config() {
     // Call as non-owner - should panic
     start_cheat_caller_address(contract, USER1());
 
-    let new_config = GlobalBuybackConfig {
-        default_buy_token: buyback_token, default_treasury: USER2(),
-    };
+    let new_config = defaults::global_config_with(buyback_token, USER2());
 
     // This should panic because USER1 is not the owner
     admin_dispatcher.set_global_config(new_config);
@@ -194,9 +192,7 @@ fn test_global_config_update() {
     let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
 
     // Update global config
-    let new_config = GlobalBuybackConfig {
-        default_buy_token: buyback_token, default_treasury: new_treasury,
-    };
+    let new_config = defaults::global_config_with(buyback_token, new_treasury);
 
     start_cheat_caller_address(contract, OWNER());
     admin_dispatcher.set_global_config(new_config);

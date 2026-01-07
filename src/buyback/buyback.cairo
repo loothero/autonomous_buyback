@@ -27,7 +27,7 @@ pub mod BuybackComponent {
     };
     use starknet::{ContractAddress, get_block_timestamp, get_contract_address};
     use crate::buyback::interface::{
-        BuybackParams, GlobalBuybackConfig, OrderInfo, TokenBuybackConfig,
+        BuybackParams, GlobalBuybackConfig, OrderInfo, PackedOrderInfo, TokenBuybackConfig,
     };
     use crate::constants::Errors;
 
@@ -49,8 +49,13 @@ pub mod BuybackComponent {
         Buyback_order_counter: Map<ContractAddress, u128>,
         /// Bookmark for claiming (next order to claim) per sell token
         Buyback_order_bookmark: Map<ContractAddress, u128>,
-        /// Full order info: (sell_token, index) -> OrderInfo
-        Buyback_orders: Map<(ContractAddress, u128), OrderInfo>,
+        /// Packed order info: (sell_token, index) -> PackedOrderInfo (single storage slot)
+        Buyback_orders: Map<(ContractAddress, u128), PackedOrderInfo>,
+        /// Active buy token per sell token (set on first order, immutable while unclaimed orders
+        /// exist)
+        Buyback_active_buy_token: Map<ContractAddress, ContractAddress>,
+        /// Active fee per sell token (set on first order, immutable while unclaimed orders exist)
+        Buyback_active_fee: Map<ContractAddress, u128>,
     }
 
     /// Events emitted by the Buyback component
@@ -160,6 +165,22 @@ pub mod BuybackComponent {
             // Transfer tokens to positions contract
             sell_token_dispatcher.transfer(positions_dispatcher.contract_address, balance);
 
+            // Get or set active buy_token and fee for this sell_token
+            // These are immutable while unclaimed orders exist to ensure OrderKey consistency
+            let stored_buy_token = self.Buyback_active_buy_token.read(params.sell_token);
+            let (active_buy_token, active_fee) = if stored_buy_token.is_zero() {
+                // First order for this sell_token - store the buy_token and fee
+                self.Buyback_active_buy_token.write(params.sell_token, config.buy_token);
+                self.Buyback_active_fee.write(params.sell_token, config.fee);
+                (config.buy_token, config.fee)
+            } else {
+                // Subsequent order - must use same buy_token and fee for OrderKey consistency
+                let stored_fee = self.Buyback_active_fee.read(params.sell_token);
+                assert(stored_buy_token == config.buy_token, Errors::BUY_TOKEN_MISMATCH);
+                assert(stored_fee == config.fee, Errors::FEE_MISMATCH);
+                (stored_buy_token, stored_fee)
+            };
+
             // Create order key
             // Note: Use params.start_time (not computed start_time) because Ekubo TWAMM
             // has strict time validation rules. start_time=0 means "start immediately"
@@ -168,8 +189,8 @@ pub mod BuybackComponent {
             // 16^n based on distance from now).
             let order_key = OrderKey {
                 sell_token: params.sell_token,
-                buy_token: config.buy_token,
-                fee: config.fee,
+                buy_token: active_buy_token,
+                fee: active_fee,
                 start_time: params.start_time,
                 end_time: params.end_time,
             };
@@ -186,16 +207,15 @@ pub mod BuybackComponent {
                 positions_dispatcher.increase_sell_amount(position_id, order_key, amount);
             }
 
-            // === Store Order Info ===
+            // === Store Packed Order Info (single storage slot) ===
             let order_index = self.Buyback_order_counter.read(params.sell_token);
-            let order_info = OrderInfo {
-                start_time: start_time,
+            let packed_order = PackedOrderInfo {
+                start_time: params.start_time, // Store raw params.start_time for OrderKey
+                // reconstruction
                 end_time: params.end_time,
                 amount: amount,
-                buy_token: config.buy_token,
-                fee: config.fee,
             };
-            self.Buyback_orders.write((params.sell_token, order_index), order_info);
+            self.Buyback_orders.write((params.sell_token, order_index), packed_order);
             self.Buyback_order_counter.write(params.sell_token, order_index + 1);
 
             // Emit event
@@ -203,9 +223,9 @@ pub mod BuybackComponent {
                 .emit(
                     BuybackStarted {
                         sell_token: params.sell_token,
-                        buy_token: config.buy_token,
+                        buy_token: active_buy_token,
                         amount,
-                        start_time,
+                        start_time: params.start_time,
                         end_time: params.end_time,
                         order_index,
                         position_id,
@@ -238,34 +258,33 @@ pub mod BuybackComponent {
                 }
             };
 
+            // Get config and active parameters once outside the loop (performance optimization)
+            let config = self._get_effective_config(sell_token);
+            let active_buy_token = self.Buyback_active_buy_token.read(sell_token);
+            let active_fee = self.Buyback_active_fee.read(sell_token);
             let positions_dispatcher = self.Buyback_positions_dispatcher.read();
             let current_time = get_block_timestamp();
 
             let mut order_number = starting_bookmark;
             let mut total_proceeds: u128 = 0;
-            let mut buy_token: ContractAddress = Zero::zero();
 
             // Iterate through orders and claim completed ones
             while order_number < max_index {
-                let order_info = self.Buyback_orders.read((sell_token, order_number));
+                let packed_order = self.Buyback_orders.read((sell_token, order_number));
 
                 // Only claim if order has ended
-                if order_info.end_time > current_time {
+                if packed_order.end_time > current_time {
                     // Orders are created sequentially, so we can break here
                     break;
                 }
 
-                // Get the effective config for treasury lookup
-                let config = self._get_effective_config(sell_token);
-                buy_token = order_info.buy_token;
-
-                // Build order key from stored info
+                // Build order key using stored active buy_token and fee
                 let order_key = OrderKey {
                     sell_token: sell_token,
-                    buy_token: order_info.buy_token,
-                    fee: order_info.fee,
-                    start_time: order_info.start_time,
-                    end_time: order_info.end_time,
+                    buy_token: active_buy_token,
+                    fee: active_fee,
+                    start_time: packed_order.start_time,
+                    end_time: packed_order.end_time,
                 };
 
                 // Withdraw proceeds to treasury
@@ -282,12 +301,20 @@ pub mod BuybackComponent {
             // Update bookmark
             self.Buyback_order_bookmark.write(sell_token, order_number);
 
+            // If all orders have been claimed, clear active buy_token and fee
+            // This allows config changes for future orders
+            if order_number == order_count {
+                let zero_address: ContractAddress = Zero::zero();
+                self.Buyback_active_buy_token.write(sell_token, zero_address);
+                self.Buyback_active_fee.write(sell_token, 0);
+            }
+
             // Emit event
             self
                 .emit(
                     BuybackProceeds {
                         sell_token,
-                        buy_token,
+                        buy_token: active_buy_token,
                         amount: total_proceeds,
                         orders_claimed: order_number - starting_bookmark,
                         new_bookmark: order_number,
@@ -360,21 +387,46 @@ pub mod BuybackComponent {
         fn get_order_info(
             self: @ComponentState<TContractState>, sell_token: ContractAddress, index: u128,
         ) -> OrderInfo {
-            self.Buyback_orders.read((sell_token, index))
+            let packed = self.Buyback_orders.read((sell_token, index));
+            let buy_token = self.Buyback_active_buy_token.read(sell_token);
+            let fee = self.Buyback_active_fee.read(sell_token);
+            OrderInfo {
+                start_time: packed.start_time,
+                end_time: packed.end_time,
+                amount: packed.amount,
+                buy_token,
+                fee,
+            }
         }
 
         /// Construct an OrderKey for a specific order index
         fn get_order_key(
             self: @ComponentState<TContractState>, sell_token: ContractAddress, index: u128,
         ) -> OrderKey {
-            let order_info = self.Buyback_orders.read((sell_token, index));
+            let packed = self.Buyback_orders.read((sell_token, index));
+            let buy_token = self.Buyback_active_buy_token.read(sell_token);
+            let fee = self.Buyback_active_fee.read(sell_token);
             OrderKey {
                 sell_token: sell_token,
-                buy_token: order_info.buy_token,
-                fee: order_info.fee,
-                start_time: order_info.start_time,
-                end_time: order_info.end_time,
+                buy_token,
+                fee,
+                start_time: packed.start_time,
+                end_time: packed.end_time,
             }
+        }
+
+        /// Get the active buy token for a sell token (set on first order)
+        fn get_active_buy_token(
+            self: @ComponentState<TContractState>, sell_token: ContractAddress,
+        ) -> ContractAddress {
+            self.Buyback_active_buy_token.read(sell_token)
+        }
+
+        /// Get the active fee for a sell token (set on first order)
+        fn get_active_fee(
+            self: @ComponentState<TContractState>, sell_token: ContractAddress,
+        ) -> u128 {
+            self.Buyback_active_fee.read(sell_token)
         }
     }
 
@@ -419,17 +471,16 @@ pub mod BuybackComponent {
                 Option::Some(config) => config,
                 Option::None => {
                     // Build default config from global settings
-                    // Use zero/default values for timing constraints
                     let global = self.Buyback_global_config.read();
                     TokenBuybackConfig {
                         buy_token: global.default_buy_token,
                         treasury: global.default_treasury,
-                        minimum_amount: 0, // No minimum by default
-                        min_delay: 0, // Can start immediately
-                        max_delay: 0, // Must start immediately
-                        min_duration: 0, // No minimum duration
-                        max_duration: 0, // No maximum duration (will fail validation)
-                        fee: 0 // Must be set via token config
+                        minimum_amount: global.default_minimum_amount,
+                        min_delay: global.default_min_delay,
+                        max_delay: global.default_max_delay,
+                        min_duration: global.default_min_duration,
+                        max_duration: global.default_max_duration,
+                        fee: global.default_fee,
                     }
                 },
             }
@@ -455,6 +506,20 @@ pub mod BuybackComponent {
             sell_token: ContractAddress,
             config: Option<TokenBuybackConfig>,
         ) {
+            // Validate config if provided
+            if let Option::Some(c) = config {
+                let zero_address: ContractAddress = Zero::zero();
+                assert(c.buy_token != zero_address, Errors::INVALID_BUY_TOKEN);
+                assert(c.treasury != zero_address, Errors::INVALID_TREASURY);
+                assert(
+                    c.min_delay <= c.max_delay || c.max_delay == 0, Errors::MIN_DELAY_GT_MAX_DELAY,
+                );
+                assert(
+                    c.min_duration <= c.max_duration || c.max_duration == 0,
+                    Errors::MIN_DURATION_GT_MAX_DURATION,
+                );
+            }
+
             let old_config = self.Buyback_token_config.read(sell_token);
             self.Buyback_token_config.write(sell_token, config);
             self.emit(TokenConfigUpdated { sell_token, old_config, new_config: config });

@@ -25,6 +25,6 @@ pub mod presets;
 pub use buyback::{
     BuybackComponent, BuybackParams, GlobalBuybackConfig, IBuyback, IBuybackAdmin,
     IBuybackAdminDispatcher, IBuybackAdminDispatcherTrait, IBuybackDispatcher,
-    IBuybackDispatcherTrait, OrderInfo, TokenBuybackConfig,
+    IBuybackDispatcherTrait, OrderInfo, PackedOrderInfo, TokenBuybackConfig,
 };
 pub use constants::Errors;

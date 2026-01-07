@@ -8,6 +8,18 @@ pub struct GlobalBuybackConfig {
     pub default_buy_token: ContractAddress,
     /// Default treasury address where proceeds are sent
     pub default_treasury: ContractAddress,
+    /// Default minimum balance required to start a buyback
+    pub default_minimum_amount: u128,
+    /// Default minimum delay before order can start (0 = can start immediately)
+    pub default_min_delay: u64,
+    /// Default maximum delay before order can start (0 = no maximum limit)
+    pub default_max_delay: u64,
+    /// Default minimum duration of the buyback order
+    pub default_min_duration: u64,
+    /// Default maximum duration of the buyback order
+    pub default_max_duration: u64,
+    /// Default fee tier for the buyback pool
+    pub default_fee: u128,
 }
 
 /// Per-token configuration for buyback orders
@@ -20,9 +32,10 @@ pub struct TokenBuybackConfig {
     pub treasury: ContractAddress,
     /// Minimum balance required to start a buyback (prevents spam/griefing)
     pub minimum_amount: u128,
-    /// Minimum delay before order can start (0 = can start immediately)
+    /// Minimum delay before order can start (0 = can start immediately, >0 = must specify future
+    /// start_time)
     pub min_delay: u64,
-    /// Maximum delay before order must start (0 = must start immediately)
+    /// Maximum delay before order can start (0 = no maximum limit)
     pub max_delay: u64,
     /// Minimum duration of the buyback order
     pub min_duration: u64,
@@ -43,9 +56,21 @@ pub struct BuybackParams {
     pub end_time: u64,
 }
 
-/// Information about a specific buyback order
-/// Stored for each order to enable proper claiming
+/// Packed order information stored per order (fits in single storage slot)
+/// buy_token and fee are stored separately at sell_token level for efficiency
 #[derive(Copy, Drop, Serde, starknet::Store, PartialEq, Debug)]
+pub struct PackedOrderInfo {
+    /// When the order started (for Ekubo OrderKey reconstruction)
+    pub start_time: u64,
+    /// When the order ends
+    pub end_time: u64,
+    /// Amount of sell token in the order
+    pub amount: u128,
+}
+
+/// Full information about a specific buyback order (returned by view functions)
+/// Combines PackedOrderInfo with sell_token-level buy_token and fee
+#[derive(Copy, Drop, Serde, PartialEq, Debug)]
 pub struct OrderInfo {
     /// When the order started
     pub start_time: u64,
@@ -53,9 +78,9 @@ pub struct OrderInfo {
     pub end_time: u64,
     /// Amount of sell token in the order
     pub amount: u128,
-    /// Token being acquired
+    /// Token being acquired (from sell_token config)
     pub buy_token: ContractAddress,
-    /// Pool fee tier
+    /// Pool fee tier (from sell_token config)
     pub fee: u128,
 }
 
@@ -128,6 +153,12 @@ pub trait IBuyback<TContractState> {
 
     /// Construct an OrderKey for a specific order index
     fn get_order_key(self: @TContractState, sell_token: ContractAddress, index: u128) -> OrderKey;
+
+    /// Get the active buy token for a sell token (set on first order, cleared when all claimed)
+    fn get_active_buy_token(self: @TContractState, sell_token: ContractAddress) -> ContractAddress;
+
+    /// Get the active fee for a sell token (set on first order, cleared when all claimed)
+    fn get_active_fee(self: @TContractState, sell_token: ContractAddress) -> u128;
 }
 
 /// Admin interface for the Autonomous Buyback component

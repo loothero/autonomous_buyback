@@ -3,8 +3,8 @@
 /// These tests verify the component's behavior in isolation using mock contracts
 /// and direct component state testing where possible.
 use autonomous_buyback::{
-    BuybackParams, GlobalBuybackConfig, IBuybackAdminDispatcher, IBuybackAdminDispatcherTrait,
-    IBuybackDispatcher, IBuybackDispatcherTrait, TokenBuybackConfig,
+    BuybackParams, IBuybackAdminDispatcher, IBuybackAdminDispatcherTrait, IBuybackDispatcher,
+    IBuybackDispatcherTrait, TokenBuybackConfig,
 };
 use snforge_std::{
     EventSpyTrait, spy_events, start_cheat_block_timestamp_global, start_cheat_caller_address,
@@ -118,9 +118,7 @@ fn test_owner_can_update_global_config() {
     let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
 
     let new_treasury: ContractAddress = 'NEW_TREASURY'.try_into().unwrap();
-    let new_config = GlobalBuybackConfig {
-        default_buy_token: buyback_token, default_treasury: new_treasury,
-    };
+    let new_config = defaults::global_config_with(buyback_token, new_treasury);
 
     start_cheat_caller_address(contract, OWNER());
     admin_dispatcher.set_global_config(new_config);
@@ -139,9 +137,7 @@ fn test_global_config_update_emits_event() {
     let mut spy = spy_events();
 
     let new_treasury: ContractAddress = 'NEW_TREASURY'.try_into().unwrap();
-    let new_config = GlobalBuybackConfig {
-        default_buy_token: buyback_token, default_treasury: new_treasury,
-    };
+    let new_config = defaults::global_config_with(buyback_token, new_treasury);
 
     start_cheat_caller_address(contract, OWNER());
     admin_dispatcher.set_global_config(new_config);
@@ -313,7 +309,7 @@ fn test_buy_back_rejects_same_tokens() {
 }
 
 #[test]
-#[should_panic(expected: 'End time invalid')]
+#[should_panic(expected: 'End time must be after start')]
 fn test_buy_back_rejects_past_end_time() {
     let buyback_token = deploy_mock_erc20("Buyback", "BUY");
     let sell_token = deploy_mock_erc20("Sell", "SELL");

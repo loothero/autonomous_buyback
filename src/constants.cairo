@@ -17,7 +17,7 @@ pub mod Errors {
 
     // Timing errors
     pub const END_TIME_IN_PAST: felt252 = 'End time must be in future';
-    pub const END_TIME_INVALID: felt252 = 'End time invalid';
+    pub const END_TIME_INVALID: felt252 = 'End time must be after start';
     pub const DURATION_TOO_SHORT: felt252 = 'Duration too short';
     pub const DURATION_TOO_LONG: felt252 = 'Duration too long';
     pub const START_TIME_TOO_SOON: felt252 = 'Start time too soon';
@@ -28,6 +28,12 @@ pub mod Errors {
     pub const NO_ORDERS_TO_CLAIM: felt252 = 'No orders to claim';
     pub const NO_COMPLETED_ORDERS: felt252 = 'No completed orders';
     pub const POSITION_NOT_INITIALIZED: felt252 = 'Position not initialized';
+
+    // Config consistency errors
+    pub const BUY_TOKEN_MISMATCH: felt252 = 'Buy token mismatch';
+    pub const FEE_MISMATCH: felt252 = 'Fee mismatch';
+    pub const MIN_DELAY_GT_MAX_DELAY: felt252 = 'min_delay > max_delay';
+    pub const MIN_DURATION_GT_MAX_DURATION: felt252 = 'min_duration > max_duration';
 }
 
 /// TWAMM-related constants

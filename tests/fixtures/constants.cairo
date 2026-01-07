@@ -78,14 +78,32 @@ pub mod defaults {
 
     /// Get default global configuration
     pub fn default_global_config() -> GlobalBuybackConfig {
-        GlobalBuybackConfig { default_buy_token: BUYBACK_TOKEN(), default_treasury: TREASURY() }
+        GlobalBuybackConfig {
+            default_buy_token: BUYBACK_TOKEN(),
+            default_treasury: TREASURY(),
+            default_minimum_amount: MIN_AMOUNT,
+            default_min_delay: 0,
+            default_max_delay: 0,
+            default_min_duration: MIN_DURATION,
+            default_max_duration: MAX_DURATION,
+            default_fee: DEFAULT_FEE,
+        }
     }
 
     /// Get default global configuration with custom addresses
     pub fn global_config_with(
         buy_token: ContractAddress, treasury: ContractAddress,
     ) -> GlobalBuybackConfig {
-        GlobalBuybackConfig { default_buy_token: buy_token, default_treasury: treasury }
+        GlobalBuybackConfig {
+            default_buy_token: buy_token,
+            default_treasury: treasury,
+            default_minimum_amount: MIN_AMOUNT,
+            default_min_delay: 0,
+            default_max_delay: 0,
+            default_min_duration: MIN_DURATION,
+            default_max_duration: MAX_DURATION,
+            default_fee: DEFAULT_FEE,
+        }
     }
 
     /// Get default token configuration
