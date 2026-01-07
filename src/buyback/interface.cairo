@@ -33,8 +33,6 @@ pub struct TokenBuybackConfig {
 }
 
 /// Parameters for creating a buyback order
-/// Note: Amount is NOT configurable - always uses full contract balance
-/// This limits attack surface on permissionless endpoints
 #[derive(Copy, Drop, Serde)]
 pub struct BuybackParams {
     /// The token to sell
@@ -134,11 +132,6 @@ pub trait IBuyback<TContractState> {
 
 /// Admin interface for the Autonomous Buyback component
 /// These functions should be protected by access control in the embedding contract
-///
-/// NOTE: No emergency functions by design (append-only contract)
-/// The contract can only create orders and claim proceeds.
-/// If issues arise: governance stops funding, existing orders complete naturally,
-/// deploy new contract for future buybacks.
 #[starknet::interface]
 pub trait IBuybackAdmin<TContractState> {
     /// Set the global configuration defaults

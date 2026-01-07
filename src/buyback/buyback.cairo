@@ -162,11 +162,16 @@ pub mod BuybackComponent {
             sell_token_dispatcher.transfer(positions_dispatcher.contract_address, balance);
 
             // Create order key
+            // Note: Use params.start_time (not computed start_time) because Ekubo TWAMM
+            // has strict time validation rules. start_time=0 means "start immediately"
+            // which always works, whereas an arbitrary current_time may not satisfy
+            // Ekubo's is_time_valid() requirements (timestamps must be multiples of
+            // 16^n based on distance from now).
             let order_key = OrderKey {
                 sell_token: params.sell_token,
                 buy_token: config.buy_token,
                 fee: config.fee,
-                start_time: start_time,
+                start_time: params.start_time,
                 end_time: params.end_time,
             };
 
