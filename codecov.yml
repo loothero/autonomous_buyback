@@ -1,0 +1,24 @@
+comment:
+  layout: "diff, files, header, footer"
+  behavior: default
+
+coverage:
+  range: 90..100
+  status:
+    project:
+      coverage:
+        target: auto
+        threshold: 4%
+    patch:
+      default:
+        target: 90%
+        threshold: 4%
+
+ignore:
+  - "**/tests/**"
+  - "**/assets**"
+  - "dojo/"
+  - "client/"
+
+github_checks:
+  annotations: false
