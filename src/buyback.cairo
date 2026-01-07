@@ -4,6 +4,7 @@ pub mod interface;
 
 pub use buyback::BuybackComponent;
 pub use interface::{
-    BuybackOrderConfig, IBuyback, IBuybackAdmin, IBuybackAdminDispatcher,
-    IBuybackAdminDispatcherTrait, IBuybackDispatcher, IBuybackDispatcherTrait,
+    BuybackParams, GlobalBuybackConfig, IBuyback, IBuybackAdmin, IBuybackAdminDispatcher,
+    IBuybackAdminDispatcherTrait, IBuybackDispatcher, IBuybackDispatcherTrait, OrderInfo,
+    TokenBuybackConfig,
 };

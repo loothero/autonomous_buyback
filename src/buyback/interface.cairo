@@ -1,10 +1,25 @@
 use ekubo::interfaces::extensions::twamm::OrderKey;
 use starknet::ContractAddress;
 
-/// Configuration for buyback orders
-/// Controls timing constraints and pool fee for DCA orders
+/// Global configuration defaults that apply when no per-token override exists
 #[derive(Copy, Drop, Serde, starknet::Store, PartialEq, Debug)]
-pub struct BuybackOrderConfig {
+pub struct GlobalBuybackConfig {
+    /// Default token to acquire (can be overridden per sell token)
+    pub default_buy_token: ContractAddress,
+    /// Default treasury address where proceeds are sent
+    pub default_treasury: ContractAddress,
+}
+
+/// Per-token configuration for buyback orders
+/// Allows different settings per sell token with flexible overrides
+#[derive(Copy, Drop, Serde, starknet::Store, PartialEq, Debug)]
+pub struct TokenBuybackConfig {
+    /// Token to acquire through buybacks
+    pub buy_token: ContractAddress,
+    /// Where proceeds are sent
+    pub treasury: ContractAddress,
+    /// Minimum balance required to start a buyback (prevents spam/griefing)
+    pub minimum_amount: u128,
     /// Minimum delay before order can start (0 = can start immediately)
     pub min_delay: u64,
     /// Maximum delay before order must start (0 = must start immediately)
@@ -17,22 +32,50 @@ pub struct BuybackOrderConfig {
     pub fee: u128,
 }
 
+/// Parameters for creating a buyback order
+/// Note: Amount is NOT configurable - always uses full contract balance
+/// This limits attack surface on permissionless endpoints
+#[derive(Copy, Drop, Serde)]
+pub struct BuybackParams {
+    /// The token to sell
+    pub sell_token: ContractAddress,
+    /// When the order should start (0 = start immediately)
+    pub start_time: u64,
+    /// When the DCA order should complete
+    pub end_time: u64,
+}
+
+/// Information about a specific buyback order
+/// Stored for each order to enable proper claiming
+#[derive(Copy, Drop, Serde, starknet::Store, PartialEq, Debug)]
+pub struct OrderInfo {
+    /// When the order started
+    pub start_time: u64,
+    /// When the order ends
+    pub end_time: u64,
+    /// Amount of sell token in the order
+    pub amount: u128,
+    /// Token being acquired
+    pub buy_token: ContractAddress,
+    /// Pool fee tier
+    pub fee: u128,
+}
+
 /// Permissionless interface for the Autonomous Buyback component
 /// These functions can be called by anyone
 #[starknet::interface]
 pub trait IBuyback<TContractState> {
     /// Execute a buyback using all tokens of `sell_token` in the contract
-    /// Creates a TWAMM DCA order to swap sell_token for the configured buyback_token
+    /// Creates a TWAMM DCA order to swap sell_token for the configured buy_token
     ///
     /// # Arguments
-    /// * `sell_token` - The token to sell (must be present in contract balance)
-    /// * `end_time` - When the DCA order should complete
+    /// * `params` - Buyback parameters (sell_token, start_time, end_time)
     ///
     /// # Panics
-    /// - If sell_token equals buyback_token
-    /// - If contract has no balance of sell_token
-    /// - If end_time violates duration constraints
-    fn buy_back(ref self: TContractState, sell_token: ContractAddress, end_time: u64);
+    /// - If sell_token equals the configured buy_token
+    /// - If contract balance is below minimum_amount
+    /// - If timing constraints are violated
+    fn buy_back(ref self: TContractState, params: BuybackParams);
 
     /// Claim proceeds from completed buyback orders and send to treasury
     ///
@@ -41,25 +84,37 @@ pub trait IBuyback<TContractState> {
     /// * `limit` - Maximum number of orders to claim (0 = claim all completed)
     ///
     /// # Returns
-    /// Total amount of buyback_token claimed
+    /// Total amount of buy_token claimed
+    ///
+    /// # Panics
+    /// - If no orders exist for the sell token
+    /// - If no orders have completed yet
     fn claim_buyback_proceeds(
         ref self: TContractState, sell_token: ContractAddress, limit: u16,
     ) -> u128;
 
-    /// Get the token that will be acquired through buybacks
-    fn get_buyback_token(self: @TContractState) -> ContractAddress;
+    /// Get the global configuration defaults
+    fn get_global_config(self: @TContractState) -> GlobalBuybackConfig;
 
-    /// Get the treasury address where proceeds are sent
-    fn get_treasury(self: @TContractState) -> ContractAddress;
+    /// Get the per-token configuration (None if not set)
+    fn get_token_config(
+        self: @TContractState, sell_token: ContractAddress,
+    ) -> Option<TokenBuybackConfig>;
 
-    /// Get the buyback order configuration
-    fn get_buyback_order_config(self: @TContractState) -> BuybackOrderConfig;
+    /// Get the effective configuration for a sell token
+    /// Returns the per-token config if set, otherwise builds from global defaults
+    fn get_effective_config(
+        self: @TContractState, sell_token: ContractAddress,
+    ) -> TokenBuybackConfig;
 
     /// Get the Ekubo positions contract address
     fn get_positions_address(self: @TContractState) -> ContractAddress;
 
     /// Get the TWAMM extension address
     fn get_extension_address(self: @TContractState) -> ContractAddress;
+
+    /// Get the position token ID for a sell token (0 if not created)
+    fn get_position_token_id(self: @TContractState, sell_token: ContractAddress) -> u64;
 
     /// Get the number of orders created for a sell token
     fn get_order_count(self: @TContractState, sell_token: ContractAddress) -> u128;
@@ -70,31 +125,28 @@ pub trait IBuyback<TContractState> {
     /// Get the number of unclaimed orders for a sell token
     fn get_unclaimed_orders_count(self: @TContractState, sell_token: ContractAddress) -> u128;
 
-    /// Get the position token ID for a sell token (0 if not created)
-    fn get_position_token_id(self: @TContractState, sell_token: ContractAddress) -> u64;
+    /// Get information about a specific order
+    fn get_order_info(self: @TContractState, sell_token: ContractAddress, index: u128) -> OrderInfo;
 
-    /// Get the end time of a specific order
-    fn get_order_end_time(self: @TContractState, sell_token: ContractAddress, index: u128) -> u64;
-
-    /// Construct an OrderKey for a specific order
-    fn get_order_key(
-        self: @TContractState, sell_token: ContractAddress, start_time: u64, end_time: u64,
-    ) -> OrderKey;
+    /// Construct an OrderKey for a specific order index
+    fn get_order_key(self: @TContractState, sell_token: ContractAddress, index: u128) -> OrderKey;
 }
 
 /// Admin interface for the Autonomous Buyback component
 /// These functions should be protected by access control in the embedding contract
+///
+/// NOTE: No emergency functions by design (append-only contract)
+/// The contract can only create orders and claim proceeds.
+/// If issues arise: governance stops funding, existing orders complete naturally,
+/// deploy new contract for future buybacks.
 #[starknet::interface]
 pub trait IBuybackAdmin<TContractState> {
-    /// Set the buyback order configuration
-    fn set_buyback_order_config(ref self: TContractState, config: BuybackOrderConfig);
+    /// Set the global configuration defaults
+    fn set_global_config(ref self: TContractState, config: GlobalBuybackConfig);
 
-    /// Set the treasury address where proceeds are sent
-    fn set_treasury(ref self: TContractState, treasury: ContractAddress);
-
-    /// Emergency withdraw ERC20 tokens from the contract
-    /// Note: Should only be used for stuck tokens, not mid-DCA orders
-    fn emergency_withdraw_erc20(
-        ref self: TContractState, token: ContractAddress, amount: u256, recipient: ContractAddress,
+    /// Set or clear per-token configuration
+    /// None = use global defaults, Some = override with specific config
+    fn set_token_config(
+        ref self: TContractState, sell_token: ContractAddress, config: Option<TokenBuybackConfig>,
     );
 }
