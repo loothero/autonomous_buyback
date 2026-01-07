@@ -1,4 +1,6 @@
-# Repository Guidelines
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Role & Context
 
@@ -445,41 +447,68 @@ Aim for 90% coverage using:
 
 ## Build and Test Commands
 
-## Project Structure & Module Organization
+```bash
+# Build the project
+scarb build
 
-- `src/` holds Cairo source. Core logic lives in `src/buyback/` (component) and `src/presets/` (deployable preset). Shared constants are in `src/constants.cairo`.
-- `tests/` is split into `tests/unit/`, `tests/integration/`, plus `tests/helpers/`, `tests/fixtures/`, and `tests/mocks/` for scaffolding.
-- `target/` and `coverage/` are generated artifacts; avoid editing them directly.
+# Run all tests
+scarb test
 
-## Build, Test, and Development Commands
+# Run a specific test by name
+snforge test test_initialization_sets_buyback_token
 
-- `scarb build`: compile the package.
-- `scarb test`: run tests via Scarb.
-- `snforge test`: run the snforge test suite.
-- `snforge test test_buy_back`: run a specific test by name.
-- `snforge test -v`: run tests with verbose output.
-- `scarb fmt`: format Cairo code.
-- `scarb fmt --check`: verify formatting without writing changes.
+# Run tests matching a pattern
+snforge test test_buy_back
 
-## Coding Style & Naming Conventions
+# Run tests with verbose output
+snforge test -v
 
-- Use `scarb fmt` to enforce indentation and line wrapping.
-- Prefer `snake_case` for functions/modules, `PascalCase` for types, and `SCREAMING_SNAKE_CASE` for constants.
-- Component storage keys are prefixed with `Buyback_` to avoid collisions (see `src/buyback/buyback.cairo`).
-- Keep error strings centralized in `src/constants.cairo` under `Errors`.
+# Format code
+scarb fmt
 
-## Testing Guidelines
+# Check formatting without modifying
+scarb fmt --check
+```
 
-- Tests use `snforge` (`snforge_std` dev dependency).
-- Name test functions `test_*` and keep unit vs integration coverage in their respective folders.
-- Add new mocks or fixtures in `tests/mocks/` and `tests/fixtures/` when extending external interactions.
+## Architecture Overview
 
-## Commit & Pull Request Guidelines
+This is a Cairo library for Starknet that provides autonomous token buybacks via Ekubo's TWAMM (Time-Weighted Average Market Maker). The core design follows OpenZeppelin's component pattern.
 
-- The commit history is minimal; keep subjects short and descriptive (e.g., `add workflows and codecov`).
-- PRs should include a brief summary, tests run (`snforge test` or `scarb test`), and any config updates (`Scarb.toml`, `snfoundry.toml`).
-- When changing buyback logic, update both unit and integration coverage.
+### Component Structure
 
-## Configuration & Forking
+**BuybackComponent** (`src/buyback/buyback.cairo`) - The reusable component containing all buyback logic:
 
-- Mainnet fork settings live in `Scarb.toml` under `[tool.snforge.fork]` (profile `MAINNET`). Update only when RPC providers change.
+- Creates TWAMM DCA orders on Ekubo to swap any ERC20 for a configured buyback token
+- Tracks multiple concurrent orders per sell token using a counter/bookmark pattern
+- First buyback for a token mints an Ekubo position; subsequent buybacks reuse it
+- Permissionless execution: anyone can call `buy_back()` and `claim_buyback_proceeds()`
+
+**AutonomousBuyback Preset** (`src/presets/autonomous_buyback.cairo`) - A deployable contract combining:
+
+- `BuybackComponent` for buyback functionality
+- `OwnableComponent` (OpenZeppelin) for admin access control
+- Admin functions (config updates, emergency withdraw) require owner
+
+### Key Interfaces
+
+- `IBuyback` - Permissionless functions: `buy_back()`, `claim_buyback_proceeds()`, view functions
+- `IBuybackAdmin` - Owner-only: `set_buyback_order_config()`, `set_treasury()`, `emergency_withdraw_erc20()`
+
+### Storage Naming Convention
+
+All component storage keys are prefixed with `Buyback_` to avoid collisions when embedded.
+
+### Test Organization
+
+- `tests/unit/` - Component behavior tests with mock Ekubo addresses
+- `tests/integration/` - Full contract tests including ownership/access control
+- `tests/helpers/deployment.cairo` - Contract deployment utilities
+- `tests/fixtures/constants.cairo` - Test addresses, mainnet addresses for fork testing, default configs
+- `tests/mocks/` - Mock ERC20 for testing
+
+### Dependencies
+
+- `ekubo` - Ekubo Protocol contracts (TWAMM, Positions interfaces)
+- `openzeppelin_access` - OwnableComponent
+- `openzeppelin_token` - ERC20 interfaces
+- `snforge_std` - Testing framework
