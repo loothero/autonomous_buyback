@@ -156,17 +156,11 @@ pub mod BuybackComponent {
 
             // === Position Handling ===
             let positions_dispatcher = self.Buyback_positions_dispatcher.read();
-            let mut position_id = self.Buyback_position_token_id.read(params.sell_token);
 
             // Transfer tokens to positions contract
             sell_token_dispatcher.transfer(positions_dispatcher.contract_address, balance);
 
             // Create order key
-            // Note: Use params.start_time (not computed start_time) because Ekubo TWAMM
-            // has strict time validation rules. start_time=0 means "start immediately"
-            // which always works, whereas an arbitrary current_time may not satisfy
-            // Ekubo's is_time_valid() requirements (timestamps must be multiples of
-            // 16^n based on distance from now).
             let order_key = OrderKey {
                 sell_token: params.sell_token,
                 buy_token: config.buy_token,
@@ -175,6 +169,7 @@ pub mod BuybackComponent {
                 end_time: params.end_time,
             };
 
+            let mut position_id = self.Buyback_position_token_id.read(params.sell_token);
             if position_id == 0 {
                 // First buyback for this token - mint new position
                 let (new_position_id, _sale_rate) = positions_dispatcher
