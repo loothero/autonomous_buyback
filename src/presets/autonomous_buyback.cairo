@@ -1,4 +1,4 @@
-/// Autonomous Buyback Preset Contract
+/// Autonomous Buyback Preset Contract v2
 ///
 /// A deployable contract that combines BuybackComponent with OwnableComponent
 /// to provide a complete autonomous buyback system.
@@ -6,23 +6,24 @@
 /// # Features
 /// - Permissionless buyback execution via `buy_back()`
 /// - Permissionless proceeds claiming via `claim_buyback_proceeds()`
-/// - Owner-only configuration updates
-/// - Owner-only emergency withdrawal
+/// - Owner-only configuration updates (global and per-token)
+/// - Append-only design: No emergency functions
 ///
 /// # Deployment
 /// Constructor requires:
 /// - owner: Contract owner address
-/// - buyback_token: Token to acquire through buybacks
-/// - treasury: Address to receive acquired tokens
+/// - global_config: GlobalBuybackConfig with default buy_token and treasury
 /// - positions_address: Ekubo positions contract
 /// - extension_address: TWAMM extension address
-/// - order_config: BuybackOrderConfig with timing/fee constraints
+///
+/// After deployment, owner should call `set_token_config` to configure
+/// each sell token with appropriate timing constraints and fees.
 #[starknet::contract]
 pub mod AutonomousBuyback {
     use openzeppelin_access::ownable::OwnableComponent;
     use starknet::ContractAddress;
     use crate::buyback::buyback::BuybackComponent;
-    use crate::buyback::interface::{BuybackOrderConfig, IBuybackAdmin};
+    use crate::buyback::interface::{GlobalBuybackConfig, IBuybackAdmin, TokenBuybackConfig};
 
     // Embed components
     component!(path: BuybackComponent, storage: buyback, event: BuybackEvent);
@@ -58,58 +59,49 @@ pub mod AutonomousBuyback {
     /// Initialize the Autonomous Buyback contract
     ///
     /// # Arguments
-    /// * `owner` - Contract owner who can update config and perform emergency actions
-    /// * `buyback_token` - The token to acquire through all buybacks
-    /// * `treasury` - Address where acquired buyback_tokens are sent
+    /// * `owner` - Contract owner who can update configuration
+    /// * `global_config` - Global configuration with default buy_token and treasury
     /// * `positions_address` - Ekubo positions contract address
     /// * `extension_address` - TWAMM extension contract address
-    /// * `order_config` - Configuration for buyback orders (durations, fee)
     #[constructor]
     fn constructor(
         ref self: ContractState,
         owner: ContractAddress,
-        buyback_token: ContractAddress,
-        treasury: ContractAddress,
+        global_config: GlobalBuybackConfig,
         positions_address: ContractAddress,
         extension_address: ContractAddress,
-        order_config: BuybackOrderConfig,
     ) {
         // Initialize Ownable component
         self.ownable.initializer(owner);
 
         // Initialize Buyback component
-        self
-            .buyback
-            .initializer(
-                buyback_token, treasury, positions_address, extension_address, order_config,
-            );
+        self.buyback.initializer(global_config, positions_address, extension_address);
     }
 
     /// Owner-only implementation of IBuybackAdmin
     /// Ensures only the owner can call admin functions
+    ///
+    /// NOTE: No emergency functions by design (append-only contract)
+    /// The contract can only create orders and claim proceeds.
+    /// If issues arise: governance stops funding, existing orders complete naturally,
+    /// deploy new contract for future buybacks.
     #[abi(embed_v0)]
     impl BuybackAdminImpl of IBuybackAdmin<ContractState> {
-        /// Set the buyback order configuration (owner only)
-        fn set_buyback_order_config(ref self: ContractState, config: BuybackOrderConfig) {
+        /// Set the global configuration defaults (owner only)
+        fn set_global_config(ref self: ContractState, config: GlobalBuybackConfig) {
             self.ownable.assert_only_owner();
-            self.buyback.set_buyback_order_config(config);
+            self.buyback.set_global_config(config);
         }
 
-        /// Set the treasury address (owner only)
-        fn set_treasury(ref self: ContractState, treasury: ContractAddress) {
-            self.ownable.assert_only_owner();
-            self.buyback.set_treasury(treasury);
-        }
-
-        /// Emergency withdraw ERC20 tokens (owner only)
-        fn emergency_withdraw_erc20(
+        /// Set or clear per-token configuration (owner only)
+        /// None = use global defaults, Some = override with specific config
+        fn set_token_config(
             ref self: ContractState,
-            token: ContractAddress,
-            amount: u256,
-            recipient: ContractAddress,
+            sell_token: ContractAddress,
+            config: Option<TokenBuybackConfig>,
         ) {
             self.ownable.assert_only_owner();
-            self.buyback.emergency_withdraw_erc20(token, amount, recipient);
+            self.buyback.set_token_config(sell_token, config);
         }
     }
 }
