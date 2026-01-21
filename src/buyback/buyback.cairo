@@ -73,6 +73,7 @@ pub mod BuybackComponent {
     pub struct BuybackStarted {
         #[key]
         pub sell_token: ContractAddress,
+        #[key]
         pub buy_token: ContractAddress,
         pub amount: u128,
         pub start_time: u64,
@@ -86,6 +87,7 @@ pub mod BuybackComponent {
     pub struct BuybackProceeds {
         #[key]
         pub sell_token: ContractAddress,
+        #[key]
         pub buy_token: ContractAddress,
         pub amount: u128,
         pub orders_claimed: u128,
