@@ -116,6 +116,20 @@ pub trait IBuyback<TContractState> {
         ref self: TContractState, sell_token: ContractAddress, limit: u16,
     ) -> u128;
 
+    /// Sweep any accumulated buy tokens directly to treasury
+    ///
+    /// This handles the edge case where the configured buy_token ends up in the contract
+    /// (e.g., from NFT royalties, airdrops, or accidental transfers). Since buy_token
+    /// cannot go through the normal buyback flow, this function sends it directly
+    /// to the treasury.
+    ///
+    /// # Returns
+    /// Amount of buy_token swept to treasury
+    ///
+    /// # Panics
+    /// - If no buy token balance exists in the contract
+    fn sweep_buy_token_to_treasury(ref self: TContractState) -> u256;
+
     /// Get the global configuration defaults
     fn get_global_config(self: @TContractState) -> GlobalBuybackConfig;
 

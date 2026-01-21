@@ -6,12 +6,13 @@ use autonomous_buyback::{
     BuybackParams, IBuybackAdminDispatcher, IBuybackAdminDispatcherTrait, IBuybackDispatcher,
     IBuybackDispatcherTrait, TokenBuybackConfig,
 };
+use openzeppelin_interfaces::token::erc20::{IERC20Dispatcher, IERC20DispatcherTrait};
 use snforge_std::{
     EventSpyTrait, spy_events, start_cheat_block_timestamp_global, start_cheat_caller_address,
     stop_cheat_caller_address,
 };
 use starknet::ContractAddress;
-use crate::fixtures::constants::{OWNER, TREASURY, ZERO_ADDRESS, amounts, defaults};
+use crate::fixtures::constants::{OWNER, TREASURY, USER1, ZERO_ADDRESS, amounts, defaults};
 use crate::helpers::deployment::{deploy_autonomous_buyback, deploy_mock_erc20};
 use crate::mocks::{IMockERC20Dispatcher, IMockERC20DispatcherTrait};
 
@@ -561,4 +562,101 @@ fn test_different_tokens_can_have_different_configs() {
 
     assert(effective_1.minimum_amount == 100, 'Token1 wrong minimum');
     assert(effective_2.minimum_amount == 500, 'Token2 wrong minimum');
+}
+
+// ============================================================================
+// Sweep Buy Token Tests
+// ============================================================================
+
+#[test]
+fn test_sweep_buy_token_transfers_to_treasury() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let mock_erc20 = IMockERC20Dispatcher { contract_address: buyback_token };
+    let erc20 = IERC20Dispatcher { contract_address: buyback_token };
+
+    // Mint buy tokens to the contract (simulating royalties or accidental transfer)
+    let sweep_amount: u256 = amounts::HUNDRED_TOKENS;
+    mock_erc20.mint(contract, sweep_amount);
+
+    // Verify contract has the tokens
+    assert(erc20.balance_of(contract) == sweep_amount, 'Contract should have tokens');
+    assert(erc20.balance_of(TREASURY()) == 0, 'Treasury should be empty');
+
+    // Sweep the tokens
+    let swept = dispatcher.sweep_buy_token_to_treasury();
+
+    // Verify tokens were transferred to treasury
+    assert(swept == sweep_amount, 'Wrong swept amount');
+    assert(erc20.balance_of(contract) == 0, 'Contract should be empty');
+    assert(erc20.balance_of(TREASURY()) == sweep_amount, 'Treasury should have tokens');
+}
+
+#[test]
+fn test_sweep_buy_token_emits_event() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let mock_erc20 = IMockERC20Dispatcher { contract_address: buyback_token };
+
+    // Mint buy tokens to the contract
+    let sweep_amount: u256 = amounts::HUNDRED_TOKENS;
+    mock_erc20.mint(contract, sweep_amount);
+
+    let mut spy = spy_events();
+
+    // Sweep the tokens
+    dispatcher.sweep_buy_token_to_treasury();
+
+    // Verify event was emitted
+    let events = spy.get_events();
+    assert(events.events.len() > 0, 'Should emit event');
+}
+
+#[test]
+fn test_sweep_buy_token_is_permissionless() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let mock_erc20 = IMockERC20Dispatcher { contract_address: buyback_token };
+
+    // Mint buy tokens to the contract
+    mock_erc20.mint(contract, amounts::HUNDRED_TOKENS);
+
+    // Call as a random user (not owner) - should succeed
+    start_cheat_caller_address(contract, USER1());
+    let swept = dispatcher.sweep_buy_token_to_treasury();
+    stop_cheat_caller_address(contract);
+
+    assert(swept == amounts::HUNDRED_TOKENS, 'Should sweep as any user');
+}
+
+#[test]
+#[should_panic(expected: 'No buy token to sweep')]
+fn test_sweep_buy_token_fails_with_zero_balance() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+
+    // Try to sweep with no balance - should fail
+    dispatcher.sweep_buy_token_to_treasury();
+}
+
+#[test]
+fn test_sweep_buy_token_uses_global_config() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let mock_erc20 = IMockERC20Dispatcher { contract_address: buyback_token };
+    let erc20 = IERC20Dispatcher { contract_address: buyback_token };
+
+    // Mint buy tokens to the contract
+    mock_erc20.mint(contract, amounts::HUNDRED_TOKENS);
+
+    // Sweep and verify it uses global config's treasury
+    dispatcher.sweep_buy_token_to_treasury();
+
+    // Treasury from global config should receive the tokens
+    assert(erc20.balance_of(TREASURY()) == amounts::HUNDRED_TOKENS, 'Should use global treasury');
 }

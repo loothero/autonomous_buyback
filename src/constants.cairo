@@ -29,6 +29,9 @@ pub mod Errors {
     pub const NO_COMPLETED_ORDERS: felt252 = 'No completed orders';
     pub const POSITION_NOT_INITIALIZED: felt252 = 'Position not initialized';
 
+    // Sweep errors
+    pub const NO_BUY_TOKEN_TO_SWEEP: felt252 = 'No buy token to sweep';
+
     // Config consistency errors
     pub const BUY_TOKEN_MISMATCH: felt252 = 'Buy token mismatch';
     pub const FEE_MISMATCH: felt252 = 'Fee mismatch';

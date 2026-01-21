@@ -64,6 +64,7 @@ pub mod BuybackComponent {
     pub enum Event {
         BuybackStarted: BuybackStarted,
         BuybackProceeds: BuybackProceeds,
+        BuyTokenSwept: BuyTokenSwept,
         GlobalConfigUpdated: GlobalConfigUpdated,
         TokenConfigUpdated: TokenConfigUpdated,
     }
@@ -92,6 +93,16 @@ pub mod BuybackComponent {
         pub amount: u128,
         pub orders_claimed: u128,
         pub new_bookmark: u128,
+    }
+
+    /// Emitted when accumulated buy tokens are swept to treasury
+    #[derive(Drop, starknet::Event)]
+    pub struct BuyTokenSwept {
+        #[key]
+        pub buy_token: ContractAddress,
+        #[key]
+        pub treasury: ContractAddress,
+        pub amount: u256,
     }
 
     /// Emitted when the global configuration is updated
@@ -324,6 +335,24 @@ pub mod BuybackComponent {
                 );
 
             total_proceeds
+        }
+
+        /// Sweep any accumulated buy tokens directly to treasury
+        fn sweep_buy_token_to_treasury(ref self: ComponentState<TContractState>) -> u256 {
+            let global_config = self.Buyback_global_config.read();
+            let buy_token = global_config.default_buy_token;
+            let treasury = global_config.default_treasury;
+
+            let buy_token_dispatcher = IERC20Dispatcher { contract_address: buy_token };
+            let balance = buy_token_dispatcher.balance_of(get_contract_address());
+
+            assert(balance > 0, Errors::NO_BUY_TOKEN_TO_SWEEP);
+
+            buy_token_dispatcher.transfer(treasury, balance);
+
+            self.emit(BuyTokenSwept { buy_token, treasury, amount: balance });
+
+            balance
         }
 
         /// Get the global configuration defaults
