@@ -1,15 +1,19 @@
-/// Autonomous Buyback Library
+/// Autonomous Buyback Library v2
 ///
 /// A Cairo library providing reusable components for executing autonomous
 /// token buybacks and distributions via Ekubo's TWAMM (Time-Weighted Average Market Maker).
 ///
 /// # Features
 /// - Permissionless buyback execution
+/// - Per-token configuration with global defaults
+/// - Delayed start support for scheduled orders
+/// - Minimum amount threshold for spam prevention
 /// - Autonomous token distribution with multiple concurrent orders
 /// - Support for any ERC20 token
 /// - Multiple concurrent DCA orders per token
 /// - Configurable order duration and fee parameters
 /// - Treasury/recipient destination for acquired tokens
+/// - Append-only design: no emergency functions
 ///
 /// # Usage
 /// ```cairo
@@ -29,8 +33,9 @@ pub mod stream;
 
 // Re-exports for convenience - Buyback
 pub use buyback::{
-    BuybackComponent, BuybackOrderConfig, IBuyback, IBuybackAdmin, IBuybackAdminDispatcher,
-    IBuybackAdminDispatcherTrait, IBuybackDispatcher, IBuybackDispatcherTrait,
+    BuybackComponent, BuybackParams, GlobalBuybackConfig, IBuyback, IBuybackAdmin,
+    IBuybackAdminDispatcher, IBuybackAdminDispatcherTrait, IBuybackDispatcher,
+    IBuybackDispatcherTrait, OrderInfo, PackedOrderInfo, TokenBuybackConfig,
 };
 
 // Re-exports for convenience - Constants

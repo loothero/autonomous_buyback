@@ -1,4 +1,4 @@
-use autonomous_buyback::BuybackOrderConfig;
+use autonomous_buyback::GlobalBuybackConfig;
 use autonomous_buyback::stream::interface::{
     DistributionOrder, IStreamTokenDispatcher, LiquidityConfig,
 };
@@ -25,22 +25,18 @@ pub fn deploy_mock_erc20(name: ByteArray, symbol: ByteArray) -> ContractAddress 
 /// Deploy the AutonomousBuyback preset contract
 pub fn deploy_autonomous_buyback(
     owner: ContractAddress,
-    buyback_token: ContractAddress,
-    treasury: ContractAddress,
+    global_config: GlobalBuybackConfig,
     positions_address: ContractAddress,
     extension_address: ContractAddress,
-    order_config: BuybackOrderConfig,
 ) -> ContractAddress {
     let contract = declare("AutonomousBuyback").unwrap().contract_class();
     let mut calldata: Array<felt252> = array![];
 
     // Serialize constructor arguments
     owner.serialize(ref calldata);
-    buyback_token.serialize(ref calldata);
-    treasury.serialize(ref calldata);
+    global_config.serialize(ref calldata);
     positions_address.serialize(ref calldata);
     extension_address.serialize(ref calldata);
-    order_config.serialize(ref calldata);
 
     let (address, _) = contract.deploy(@calldata).unwrap();
     address
@@ -75,14 +71,10 @@ pub fn deploy_test_setup_mock() -> TestSetup {
     let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
     let mock_extension: ContractAddress = 'EXTENSION'.try_into().unwrap();
 
-    // Deploy buyback contract
+    // Deploy buyback contract with global config
+    let global_config = defaults::global_config_with(buyback_token, TREASURY());
     let buyback_contract = deploy_autonomous_buyback(
-        OWNER(),
-        buyback_token,
-        TREASURY(),
-        mock_positions,
-        mock_extension,
-        defaults::default_config(),
+        OWNER(), global_config, mock_positions, mock_extension,
     );
 
     TestSetup { buyback_contract, buyback_token, sell_token }

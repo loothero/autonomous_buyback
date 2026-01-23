@@ -18,6 +18,10 @@ pub fn TREASURY() -> ContractAddress {
     'TREASURY'.try_into().unwrap()
 }
 
+pub fn BUYBACK_TOKEN() -> ContractAddress {
+    'BUYBACK_TOKEN'.try_into().unwrap()
+}
+
 pub fn ZERO_ADDRESS() -> ContractAddress {
     Zero::zero()
 }
@@ -56,7 +60,9 @@ pub mod mainnet {
 
 /// Default test configuration values
 pub mod defaults {
-    use autonomous_buyback::BuybackOrderConfig;
+    use autonomous_buyback::{GlobalBuybackConfig, TokenBuybackConfig};
+    use starknet::ContractAddress;
+    use super::{BUYBACK_TOKEN, TREASURY};
 
     /// Default minimum duration (1 hour)
     pub const MIN_DURATION: u64 = 3600;
@@ -67,13 +73,107 @@ pub mod defaults {
     /// Default fee (0.3% = 3000 basis points)
     pub const DEFAULT_FEE: u128 = 170141183460469235273462165868118016;
 
-    /// Get default test configuration
-    pub fn default_config() -> BuybackOrderConfig {
-        BuybackOrderConfig {
+    /// Default minimum amount for buybacks
+    pub const MIN_AMOUNT: u128 = 0;
+
+    /// Get default global configuration
+    pub fn default_global_config() -> GlobalBuybackConfig {
+        GlobalBuybackConfig {
+            default_buy_token: BUYBACK_TOKEN(),
+            default_treasury: TREASURY(),
+            default_minimum_amount: MIN_AMOUNT,
+            default_min_delay: 0,
+            default_max_delay: 0,
+            default_min_duration: MIN_DURATION,
+            default_max_duration: MAX_DURATION,
+            default_fee: DEFAULT_FEE,
+        }
+    }
+
+    /// Get default global configuration with custom addresses
+    pub fn global_config_with(
+        buy_token: ContractAddress, treasury: ContractAddress,
+    ) -> GlobalBuybackConfig {
+        GlobalBuybackConfig {
+            default_buy_token: buy_token,
+            default_treasury: treasury,
+            default_minimum_amount: MIN_AMOUNT,
+            default_min_delay: 0,
+            default_max_delay: 0,
+            default_min_duration: MIN_DURATION,
+            default_max_duration: MAX_DURATION,
+            default_fee: DEFAULT_FEE,
+        }
+    }
+
+    /// Get default token configuration
+    pub fn default_token_config() -> TokenBuybackConfig {
+        TokenBuybackConfig {
+            buy_token: BUYBACK_TOKEN(),
+            treasury: TREASURY(),
+            minimum_amount: MIN_AMOUNT,
             min_delay: 0,
             max_delay: 0,
             min_duration: MIN_DURATION,
             max_duration: MAX_DURATION,
+            fee: DEFAULT_FEE,
+        }
+    }
+
+    /// Get token configuration with custom buy token and treasury
+    pub fn token_config_with(
+        buy_token: ContractAddress, treasury: ContractAddress,
+    ) -> TokenBuybackConfig {
+        TokenBuybackConfig {
+            buy_token,
+            treasury,
+            minimum_amount: MIN_AMOUNT,
+            min_delay: 0,
+            max_delay: 0,
+            min_duration: MIN_DURATION,
+            max_duration: MAX_DURATION,
+            fee: DEFAULT_FEE,
+        }
+    }
+
+    /// Get token configuration with custom minimum amount
+    pub fn token_config_with_minimum(minimum_amount: u128) -> TokenBuybackConfig {
+        TokenBuybackConfig {
+            buy_token: BUYBACK_TOKEN(),
+            treasury: TREASURY(),
+            minimum_amount,
+            min_delay: 0,
+            max_delay: 0,
+            min_duration: MIN_DURATION,
+            max_duration: MAX_DURATION,
+            fee: DEFAULT_FEE,
+        }
+    }
+
+    /// Get token configuration with delayed start
+    pub fn token_config_with_delay(min_delay: u64, max_delay: u64) -> TokenBuybackConfig {
+        TokenBuybackConfig {
+            buy_token: BUYBACK_TOKEN(),
+            treasury: TREASURY(),
+            minimum_amount: MIN_AMOUNT,
+            min_delay,
+            max_delay,
+            min_duration: MIN_DURATION,
+            max_duration: MAX_DURATION,
+            fee: DEFAULT_FEE,
+        }
+    }
+
+    /// Get token configuration with no max duration (unlimited)
+    pub fn token_config_with_no_max_duration() -> TokenBuybackConfig {
+        TokenBuybackConfig {
+            buy_token: BUYBACK_TOKEN(),
+            treasury: TREASURY(),
+            minimum_amount: MIN_AMOUNT,
+            min_delay: 0,
+            max_delay: 0,
+            min_duration: MIN_DURATION,
+            max_duration: 0, // 0 = no maximum limit
             fee: DEFAULT_FEE,
         }
     }
