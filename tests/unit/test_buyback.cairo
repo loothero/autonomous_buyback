@@ -107,6 +107,113 @@ fn test_initial_token_config_is_none() {
     assert(dispatcher.get_token_config(sell_token).is_none(), 'Should have no token config');
 }
 
+// NOTE: Initializer validation is tested indirectly via set_global_config tests which use
+// the same validation logic. Direct initializer tests cannot use #[should_panic] because
+// snforge doesn't catch deployment failures with that pattern. The following tests are
+// kept as #[ignore] for documentation - when run manually, they will fail with the expected
+// error messages ('min_delay > max_delay' and 'min_duration > max_duration'), proving the
+// validation works correctly.
+
+#[test]
+#[ignore]
+fn test_initialization_rejects_min_delay_gt_max_delay() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+    let mock_extension: ContractAddress = 'EXTENSION'.try_into().unwrap();
+
+    // Create config with min_delay > max_delay (both non-zero)
+    let invalid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 1000, // min > max
+        default_max_delay: 500,
+        default_min_duration: defaults::MIN_DURATION,
+        default_max_duration: defaults::MAX_DURATION,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    // This panics during deployment with 'min_delay > max_delay'
+    // Validation is tested via test_set_global_config_rejects_min_delay_gt_max_delay
+    deploy_autonomous_buyback(OWNER(), invalid_config, mock_positions, mock_extension);
+}
+
+#[test]
+#[ignore]
+fn test_initialization_rejects_min_duration_gt_max_duration() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+    let mock_extension: ContractAddress = 'EXTENSION'.try_into().unwrap();
+
+    // Create config with min_duration > max_duration (both non-zero)
+    let invalid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 0,
+        default_max_delay: 0,
+        default_min_duration: 100000, // min > max
+        default_max_duration: 50000,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    // This panics during deployment with 'min_duration > max_duration'
+    // Validation is tested via test_set_global_config_rejects_min_duration_gt_max_duration
+    deploy_autonomous_buyback(OWNER(), invalid_config, mock_positions, mock_extension);
+}
+
+#[test]
+fn test_initialization_allows_max_delay_zero() {
+    // max_delay = 0 means "no maximum limit", so min_delay > 0 is valid
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+    let mock_extension: ContractAddress = 'EXTENSION'.try_into().unwrap();
+
+    let valid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 1000, // min_delay > 0 with max_delay = 0 (no limit) is valid
+        default_max_delay: 0,
+        default_min_duration: defaults::MIN_DURATION,
+        default_max_duration: defaults::MAX_DURATION,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    let contract = deploy_autonomous_buyback(OWNER(), valid_config, mock_positions, mock_extension);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+
+    let config = dispatcher.get_global_config();
+    assert(config.default_min_delay == 1000, 'min_delay should be 1000');
+    assert(config.default_max_delay == 0, 'max_delay should be 0');
+}
+
+#[test]
+fn test_initialization_allows_max_duration_zero() {
+    // max_duration = 0 means "no maximum limit", so min_duration > 0 is valid
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+    let mock_extension: ContractAddress = 'EXTENSION'.try_into().unwrap();
+
+    let valid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 0,
+        default_max_delay: 0,
+        default_min_duration: 1000, // min_duration > 0 with max_duration = 0 (no limit) is valid
+        default_max_duration: 0,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    let contract = deploy_autonomous_buyback(OWNER(), valid_config, mock_positions, mock_extension);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+
+    let config = dispatcher.get_global_config();
+    assert(config.default_min_duration == 1000, 'min_duration should be 1000');
+    assert(config.default_max_duration == 0, 'max_duration should be 0');
+}
+
 // ============================================================================
 // Global Configuration Tests
 // ============================================================================
@@ -511,6 +618,42 @@ fn test_buy_back_rejects_duration_too_long() {
         sell_token, start_time: 0, end_time: 1000 + defaults::MAX_DURATION + 1,
     };
     dispatcher.buy_back(params);
+}
+
+#[test]
+fn test_buy_back_allows_any_duration_when_max_duration_is_zero() {
+    // max_duration = 0 means "no maximum limit"
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let sell_token = deploy_mock_erc20("Sell", "SELL");
+    let contract = setup_buyback_contract(buyback_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+    let mock_erc20 = IMockERC20Dispatcher { contract_address: sell_token };
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+
+    // Set token config with max_duration = 0 (no limit)
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher
+        .set_token_config(sell_token, Option::Some(defaults::token_config_with_no_max_duration()));
+    stop_cheat_caller_address(contract);
+
+    // Mint tokens for buyback
+    mock_erc20.mint(contract, amounts::THOUSAND_TOKENS);
+
+    // Set block timestamp
+    start_cheat_block_timestamp_global(1000);
+
+    // Mock the positions contract
+    mock_call(mock_positions, selector!("mint_and_increase_sell_amount"), (1_u64, 100_u128), 1);
+
+    // Create buyback with duration 10x longer than default MAX_DURATION
+    // This would fail with "Duration too long" if max_duration was enforced
+    let very_long_duration = defaults::MAX_DURATION * 10;
+    let params = BuybackParams { sell_token, start_time: 0, end_time: 1000 + very_long_duration };
+    dispatcher.buy_back(params);
+
+    // Verify order was created successfully
+    assert(dispatcher.get_order_count(sell_token) == 1, 'Should have 1 order');
 }
 
 #[test]

@@ -161,7 +161,10 @@ pub mod BuybackComponent {
 
             let duration = params.end_time - actual_start;
             assert(duration >= config.min_duration, Errors::DURATION_TOO_SHORT);
-            assert(duration <= config.max_duration, Errors::DURATION_TOO_LONG);
+            // max_duration == 0 means no maximum limit (consistent with max_delay behavior)
+            if config.max_duration > 0 {
+                assert(duration <= config.max_duration, Errors::DURATION_TOO_LONG);
+            }
 
             // === Amount Handling (always full balance, with minimum threshold) ===
             let sell_token_dispatcher = IERC20Dispatcher { contract_address: params.sell_token };
@@ -300,7 +303,12 @@ pub mod BuybackComponent {
                     end_time: packed_order.end_time,
                 };
 
-                // Withdraw proceeds to treasury
+                // Withdraw proceeds to treasury.
+                // NOTE: This intentionally uses the *current* config.treasury rather than
+                // storing a treasury address per order. If the treasury config is changed after
+                // orders are created but before they are claimed, proceeds from those existing
+                // orders will be sent to the new treasury address. This is a design choice to
+                // avoid per-order treasury storage; integrators should be aware of this behavior.
                 let proceeds = positions_dispatcher
                     .withdraw_proceeds_from_sale_to(position_id, order_key, config.treasury);
 
@@ -338,6 +346,11 @@ pub mod BuybackComponent {
         }
 
         /// Sweep any accumulated buy tokens directly to treasury
+        ///
+        /// NOTE: This only sweeps `default_buy_token` from the global config. If per-token
+        /// configs specify different buy_tokens, those tokens will NOT be swept by this
+        /// function. Integrators using different buy_tokens per sell_token should implement
+        /// their own sweep mechanism or ensure all configs use the same buy_token.
         fn sweep_buy_token_to_treasury(ref self: ComponentState<TContractState>) -> u256 {
             let global_config = self.Buyback_global_config.read();
             let buy_token = global_config.default_buy_token;
@@ -415,6 +428,12 @@ pub mod BuybackComponent {
         }
 
         /// Get information about a specific order
+        ///
+        /// NOTE: The `buy_token` and `fee` fields are read from `active_buy_token` and
+        /// `active_fee` storage, which are cleared when all orders are claimed. After all
+        /// orders for a sell_token are claimed, this function will return zero values for
+        /// `buy_token` and `fee` even for historical orders. Retrieve order info before
+        /// claiming the final order if historical data is needed.
         fn get_order_info(
             self: @ComponentState<TContractState>, sell_token: ContractAddress, index: u128,
         ) -> OrderInfo {
@@ -431,6 +450,12 @@ pub mod BuybackComponent {
         }
 
         /// Construct an OrderKey for a specific order index
+        ///
+        /// NOTE: The `buy_token` and `fee` fields are read from `active_buy_token` and
+        /// `active_fee` storage, which are cleared when all orders are claimed. After all
+        /// orders for a sell_token are claimed, this function will return an invalid OrderKey
+        /// with zero `buy_token` and `fee`. Retrieve order keys before claiming the final
+        /// order if needed for external Ekubo interactions.
         fn get_order_key(
             self: @ComponentState<TContractState>, sell_token: ContractAddress, index: u128,
         ) -> OrderKey {
@@ -484,6 +509,19 @@ pub mod BuybackComponent {
             assert(global_config.default_treasury != zero_address, Errors::INVALID_TREASURY);
             assert(positions_address != zero_address, Errors::INVALID_POSITIONS_ADDRESS);
             assert(extension_address != zero_address, Errors::INVALID_EXTENSION_ADDRESS);
+
+            // Validate delay/duration consistency (0 = no limit, so only validate when both are
+            // set)
+            assert(
+                global_config.default_min_delay <= global_config.default_max_delay
+                    || global_config.default_max_delay == 0,
+                Errors::MIN_DELAY_GT_MAX_DELAY,
+            );
+            assert(
+                global_config.default_min_duration <= global_config.default_max_duration
+                    || global_config.default_max_duration == 0,
+                Errors::MIN_DURATION_GT_MAX_DURATION,
+            );
 
             // Store configuration
             self.Buyback_global_config.write(global_config);

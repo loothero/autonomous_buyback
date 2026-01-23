@@ -163,6 +163,20 @@ pub mod defaults {
             fee: DEFAULT_FEE,
         }
     }
+
+    /// Get token configuration with no max duration (unlimited)
+    pub fn token_config_with_no_max_duration() -> TokenBuybackConfig {
+        TokenBuybackConfig {
+            buy_token: BUYBACK_TOKEN(),
+            treasury: TREASURY(),
+            minimum_amount: MIN_AMOUNT,
+            min_delay: 0,
+            max_delay: 0,
+            min_duration: MIN_DURATION,
+            max_duration: 0, // 0 = no maximum limit
+            fee: DEFAULT_FEE,
+        }
+    }
 }
 
 /// Token amounts for testing
