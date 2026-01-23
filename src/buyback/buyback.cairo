@@ -525,6 +525,19 @@ pub mod BuybackComponent {
             assert(config.default_buy_token != zero_address, Errors::INVALID_BUY_TOKEN);
             assert(config.default_treasury != zero_address, Errors::INVALID_TREASURY);
 
+            // Validate delay/duration consistency (0 = no limit, so only validate when both are
+            // set)
+            assert(
+                config.default_min_delay <= config.default_max_delay
+                    || config.default_max_delay == 0,
+                Errors::MIN_DELAY_GT_MAX_DELAY,
+            );
+            assert(
+                config.default_min_duration <= config.default_max_duration
+                    || config.default_max_duration == 0,
+                Errors::MIN_DURATION_GT_MAX_DURATION,
+            );
+
             let old_config = self.Buyback_global_config.read();
             self.Buyback_global_config.write(config);
             self.emit(GlobalConfigUpdated { old_config, new_config: config });

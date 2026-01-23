@@ -10,7 +10,8 @@ pub struct GlobalBuybackConfig {
     pub default_treasury: ContractAddress,
     /// Default minimum balance required to start a buyback
     pub default_minimum_amount: u128,
-    /// Default minimum delay before order can start (0 = can start immediately)
+    /// Default minimum delay before order can start (0 = can start immediately, >0 = must specify
+    /// future start_time with sufficient delay)
     pub default_min_delay: u64,
     /// Default maximum delay before order can start (0 = no maximum limit)
     pub default_max_delay: u64,

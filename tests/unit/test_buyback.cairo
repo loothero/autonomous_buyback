@@ -8,8 +8,8 @@ use autonomous_buyback::{
 };
 use openzeppelin_interfaces::token::erc20::{IERC20Dispatcher, IERC20DispatcherTrait};
 use snforge_std::{
-    EventSpyTrait, spy_events, start_cheat_block_timestamp_global, start_cheat_caller_address,
-    stop_cheat_caller_address,
+    EventSpyTrait, mock_call, spy_events, start_cheat_block_timestamp_global,
+    start_cheat_caller_address, stop_cheat_caller_address,
 };
 use starknet::ContractAddress;
 use crate::fixtures::constants::{OWNER, TREASURY, USER1, ZERO_ADDRESS, amounts, defaults};
@@ -146,6 +146,158 @@ fn test_global_config_update_emits_event() {
 
     let events = spy.get_events();
     assert(events.events.len() > 0, 'Should emit event');
+}
+
+#[test]
+#[should_panic(expected: 'Invalid buy token')]
+fn test_set_global_config_rejects_zero_buy_token() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+
+    // Create config with zero buy_token
+    let invalid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: ZERO_ADDRESS(),
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 0,
+        default_max_delay: 0,
+        default_min_duration: defaults::MIN_DURATION,
+        default_max_duration: defaults::MAX_DURATION,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_global_config(invalid_config);
+    stop_cheat_caller_address(contract);
+}
+
+#[test]
+#[should_panic(expected: 'Invalid treasury address')]
+fn test_set_global_config_rejects_zero_treasury() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+
+    // Create config with zero treasury
+    let invalid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: ZERO_ADDRESS(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 0,
+        default_max_delay: 0,
+        default_min_duration: defaults::MIN_DURATION,
+        default_max_duration: defaults::MAX_DURATION,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_global_config(invalid_config);
+    stop_cheat_caller_address(contract);
+}
+
+#[test]
+#[should_panic(expected: 'min_delay > max_delay')]
+fn test_set_global_config_rejects_min_delay_gt_max_delay() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+
+    // Create config with min_delay > max_delay (both non-zero)
+    let invalid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 1000, // min > max
+        default_max_delay: 500,
+        default_min_duration: defaults::MIN_DURATION,
+        default_max_duration: defaults::MAX_DURATION,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_global_config(invalid_config);
+    stop_cheat_caller_address(contract);
+}
+
+#[test]
+#[should_panic(expected: 'min_duration > max_duration')]
+fn test_set_global_config_rejects_min_duration_gt_max_duration() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+
+    // Create config with min_duration > max_duration (both non-zero)
+    let invalid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 0,
+        default_max_delay: 0,
+        default_min_duration: 100000, // min > max
+        default_max_duration: 50000,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_global_config(invalid_config);
+    stop_cheat_caller_address(contract);
+}
+
+#[test]
+fn test_set_global_config_allows_max_delay_zero() {
+    // max_delay = 0 means "no maximum limit", so min_delay > 0 is valid
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+
+    let valid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 1000, // min_delay > 0 with max_delay = 0 (no limit) is valid
+        default_max_delay: 0,
+        default_min_duration: defaults::MIN_DURATION,
+        default_max_duration: defaults::MAX_DURATION,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_global_config(valid_config);
+    stop_cheat_caller_address(contract);
+
+    let config = dispatcher.get_global_config();
+    assert(config.default_min_delay == 1000, 'min_delay should be 1000');
+    assert(config.default_max_delay == 0, 'max_delay should be 0');
+}
+
+#[test]
+fn test_set_global_config_allows_max_duration_zero() {
+    // max_duration = 0 means "no maximum limit", so min_duration > 0 is valid
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let contract = setup_buyback_contract(buyback_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+
+    let valid_config = autonomous_buyback::GlobalBuybackConfig {
+        default_buy_token: buyback_token,
+        default_treasury: TREASURY(),
+        default_minimum_amount: defaults::MIN_AMOUNT,
+        default_min_delay: 0,
+        default_max_delay: 0,
+        default_min_duration: 1000, // min_duration > 0 with max_duration = 0 (no limit) is valid
+        default_max_duration: 0,
+        default_fee: defaults::DEFAULT_FEE,
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_global_config(valid_config);
+    stop_cheat_caller_address(contract);
+
+    let config = dispatcher.get_global_config();
+    assert(config.default_min_duration == 1000, 'min_duration should be 1000');
+    assert(config.default_max_duration == 0, 'max_duration should be 0');
 }
 
 // ============================================================================
@@ -660,3 +812,200 @@ fn test_sweep_buy_token_uses_global_config() {
     // Treasury from global config should receive the tokens
     assert(erc20.balance_of(TREASURY()) == amounts::HUNDRED_TOKENS, 'Should use global treasury');
 }
+
+// ============================================================================
+// Buy Token / Fee Mismatch Tests (Config Change with Unclaimed Orders)
+// ============================================================================
+
+/// Helper to setup a buyback contract with explicit token config for mismatch testing
+fn setup_buyback_with_explicit_config(
+    buyback_token: ContractAddress, sell_token: ContractAddress,
+) -> ContractAddress {
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+    let mock_extension: ContractAddress = 'EXTENSION'.try_into().unwrap();
+
+    // Use the actual buyback_token in global config
+    let global_config = defaults::global_config_with(buyback_token, TREASURY());
+    let contract = deploy_autonomous_buyback(
+        OWNER(), global_config, mock_positions, mock_extension,
+    );
+
+    // Set token config with the same buyback_token
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+    let token_config = TokenBuybackConfig {
+        buy_token: buyback_token,
+        treasury: TREASURY(),
+        minimum_amount: defaults::MIN_AMOUNT,
+        min_delay: 0,
+        max_delay: 0,
+        min_duration: defaults::MIN_DURATION,
+        max_duration: defaults::MAX_DURATION,
+        fee: defaults::DEFAULT_FEE,
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_token_config(sell_token, Option::Some(token_config));
+    stop_cheat_caller_address(contract);
+
+    contract
+}
+
+#[test]
+#[should_panic(expected: 'Buy token mismatch')]
+fn test_buy_back_rejects_buy_token_change_with_unclaimed_orders() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let sell_token = deploy_mock_erc20("Sell", "SELL");
+    let new_buyback_token = deploy_mock_erc20("NewBuyback", "NBUY");
+    let contract = setup_buyback_with_explicit_config(buyback_token, sell_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+    let mock_erc20 = IMockERC20Dispatcher { contract_address: sell_token };
+
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+
+    // Mint tokens for the first buyback
+    mock_erc20.mint(contract, amounts::THOUSAND_TOKENS);
+
+    // Set block timestamp
+    start_cheat_block_timestamp_global(1000);
+
+    // Mock the positions contract's mint_and_increase_sell_amount to return a position ID
+    mock_call(mock_positions, selector!("mint_and_increase_sell_amount"), (1_u64, 100_u128), 1);
+
+    // Create first buyback order - this sets active_buy_token and active_fee
+    let params = BuybackParams {
+        sell_token, start_time: 0, end_time: 1000 + defaults::MIN_DURATION + 100,
+    };
+    dispatcher.buy_back(params);
+
+    // Verify order was created
+    assert(dispatcher.get_order_count(sell_token) == 1, 'Should have 1 order');
+    assert(dispatcher.get_active_buy_token(sell_token) == buyback_token, 'Active buy token set');
+
+    // Now change the token config to use a different buy_token
+    let new_token_config = TokenBuybackConfig {
+        buy_token: new_buyback_token,
+        treasury: TREASURY(),
+        minimum_amount: defaults::MIN_AMOUNT,
+        min_delay: 0,
+        max_delay: 0,
+        min_duration: defaults::MIN_DURATION,
+        max_duration: defaults::MAX_DURATION,
+        fee: defaults::DEFAULT_FEE,
+    };
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_token_config(sell_token, Option::Some(new_token_config));
+    stop_cheat_caller_address(contract);
+
+    // Mint more tokens for second buyback
+    mock_erc20.mint(contract, amounts::THOUSAND_TOKENS);
+
+    // Mock the positions contract again
+    mock_call(mock_positions, selector!("increase_sell_amount"), (), 1);
+
+    // Try to create another buyback - should fail because buy_token changed
+    let params2 = BuybackParams {
+        sell_token, start_time: 0, end_time: 1000 + defaults::MIN_DURATION + 200,
+    };
+    dispatcher.buy_back(params2);
+}
+
+#[test]
+#[should_panic(expected: 'Fee mismatch')]
+fn test_buy_back_rejects_fee_change_with_unclaimed_orders() {
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let sell_token = deploy_mock_erc20("Sell", "SELL");
+    let contract = setup_buyback_with_explicit_config(buyback_token, sell_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+    let mock_erc20 = IMockERC20Dispatcher { contract_address: sell_token };
+
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+
+    // Mint tokens for the first buyback
+    mock_erc20.mint(contract, amounts::THOUSAND_TOKENS);
+
+    // Set block timestamp
+    start_cheat_block_timestamp_global(1000);
+
+    // Mock the positions contract's mint_and_increase_sell_amount to return a position ID
+    mock_call(mock_positions, selector!("mint_and_increase_sell_amount"), (1_u64, 100_u128), 1);
+
+    // Create first buyback order - this sets active_buy_token and active_fee
+    let params = BuybackParams {
+        sell_token, start_time: 0, end_time: 1000 + defaults::MIN_DURATION + 100,
+    };
+    dispatcher.buy_back(params);
+
+    // Verify order was created and active fee is set
+    assert(dispatcher.get_order_count(sell_token) == 1, 'Should have 1 order');
+    let active_fee = dispatcher.get_active_fee(sell_token);
+    assert(active_fee == defaults::DEFAULT_FEE, 'Active fee should be set');
+
+    // Now change the token config to use a different fee
+    let different_fee: u128 = 999999; // Different from DEFAULT_FEE
+    let new_token_config = TokenBuybackConfig {
+        buy_token: buyback_token, // Same buy_token, different fee
+        treasury: TREASURY(),
+        minimum_amount: defaults::MIN_AMOUNT,
+        min_delay: 0,
+        max_delay: 0,
+        min_duration: defaults::MIN_DURATION,
+        max_duration: defaults::MAX_DURATION,
+        fee: different_fee,
+    };
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_token_config(sell_token, Option::Some(new_token_config));
+    stop_cheat_caller_address(contract);
+
+    // Mint more tokens for second buyback
+    mock_erc20.mint(contract, amounts::THOUSAND_TOKENS);
+
+    // Mock the positions contract again
+    mock_call(mock_positions, selector!("increase_sell_amount"), (), 1);
+
+    // Try to create another buyback - should fail because fee changed
+    let params2 = BuybackParams {
+        sell_token, start_time: 0, end_time: 1000 + defaults::MIN_DURATION + 200,
+    };
+    dispatcher.buy_back(params2);
+}
+
+#[test]
+fn test_active_buy_token_cleared_when_no_unclaimed_orders() {
+    // This test verifies the storage behavior: active_buy_token should be zero
+    // when there are no unclaimed orders (no orders exist yet)
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let sell_token = deploy_mock_erc20("Sell", "SELL");
+    let contract = setup_buyback_with_explicit_config(buyback_token, sell_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+
+    // Before any orders, active_buy_token should be zero
+    assert(dispatcher.get_active_buy_token(sell_token) == ZERO_ADDRESS(), 'Should be zero');
+    assert(dispatcher.get_active_fee(sell_token) == 0, 'Fee should be zero');
+    assert(dispatcher.get_unclaimed_orders_count(sell_token) == 0, 'No unclaimed orders');
+
+    // Config can be changed freely when no unclaimed orders exist
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+    let new_buyback_token = deploy_mock_erc20("NewBuyback", "NBUY");
+    let new_token_config = TokenBuybackConfig {
+        buy_token: new_buyback_token,
+        treasury: TREASURY(),
+        minimum_amount: defaults::MIN_AMOUNT,
+        min_delay: 0,
+        max_delay: 0,
+        min_duration: defaults::MIN_DURATION,
+        max_duration: defaults::MAX_DURATION,
+        fee: 12345 // Different fee
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_token_config(sell_token, Option::Some(new_token_config));
+    stop_cheat_caller_address(contract);
+
+    // Verify config was updated
+    let effective = dispatcher.get_effective_config(sell_token);
+    assert(effective.buy_token == new_buyback_token, 'Buy token should be updated');
+    assert(effective.fee == 12345, 'Fee should be updated');
+}
+
