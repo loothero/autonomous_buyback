@@ -1152,3 +1152,83 @@ fn test_active_buy_token_cleared_when_no_unclaimed_orders() {
     assert(effective.fee == 12345, 'Fee should be updated');
 }
 
+#[test]
+fn test_position_id_cleared_after_all_orders_claimed() {
+    // This test verifies that position_id is cleared when all orders are claimed,
+    // allowing a new position to be minted if config changes
+    let buyback_token = deploy_mock_erc20("Buyback", "BUY");
+    let sell_token = deploy_mock_erc20("Sell", "SELL");
+    let contract = setup_buyback_with_explicit_config(buyback_token, sell_token);
+    let dispatcher = IBuybackDispatcher { contract_address: contract };
+    let admin_dispatcher = IBuybackAdminDispatcher { contract_address: contract };
+    let mock_erc20 = IMockERC20Dispatcher { contract_address: sell_token };
+    let mock_positions: ContractAddress = 'POSITIONS'.try_into().unwrap();
+
+    // Mint tokens for first buyback
+    mock_erc20.mint(contract, amounts::THOUSAND_TOKENS);
+
+    // Set block timestamp
+    start_cheat_block_timestamp_global(1000);
+
+    // Mock mint_and_increase_sell_amount to return position ID 42
+    mock_call(mock_positions, selector!("mint_and_increase_sell_amount"), (42_u64, 100_u128), 1);
+
+    // Create first buyback order
+    let end_time = 1000 + defaults::MIN_DURATION + 100;
+    let params = BuybackParams { sell_token, start_time: 0, end_time };
+    dispatcher.buy_back(params);
+
+    // Verify position ID was stored
+    assert(dispatcher.get_position_token_id(sell_token) == 42, 'Position ID should be 42');
+    assert(dispatcher.get_order_count(sell_token) == 1, 'Should have 1 order');
+
+    // Fast forward past order end time
+    start_cheat_block_timestamp_global(end_time + 1);
+
+    // Mock withdraw_proceeds_from_sale_to
+    mock_call(mock_positions, selector!("withdraw_proceeds_from_sale_to"), 500_u128, 1);
+
+    // Claim all orders
+    dispatcher.claim_buyback_proceeds(sell_token, 0);
+
+    // Verify position_id, active_buy_token, and active_fee are all cleared
+    assert(dispatcher.get_position_token_id(sell_token) == 0, 'Position ID should be cleared');
+    assert(dispatcher.get_active_buy_token(sell_token) == ZERO_ADDRESS(), 'Buy token cleared');
+    assert(dispatcher.get_active_fee(sell_token) == 0, 'Fee should be cleared');
+
+    // Now change config to use different buy_token
+    let new_buyback_token = deploy_mock_erc20("NewBuyback", "NBUY");
+    let new_token_config = TokenBuybackConfig {
+        buy_token: new_buyback_token,
+        treasury: TREASURY(),
+        minimum_amount: defaults::MIN_AMOUNT,
+        min_delay: 0,
+        max_delay: 0,
+        min_duration: defaults::MIN_DURATION,
+        max_duration: defaults::MAX_DURATION,
+        fee: 999999 // Different fee
+    };
+
+    start_cheat_caller_address(contract, OWNER());
+    admin_dispatcher.set_token_config(sell_token, Option::Some(new_token_config));
+    stop_cheat_caller_address(contract);
+
+    // Mint more tokens for second batch
+    mock_erc20.mint(contract, amounts::THOUSAND_TOKENS);
+
+    // Mock mint_and_increase_sell_amount again - this should be called (not increase_sell_amount)
+    // because position_id was cleared, so a NEW position should be minted
+    mock_call(mock_positions, selector!("mint_and_increase_sell_amount"), (99_u64, 100_u128), 1);
+
+    // Create second buyback with new config - should succeed and mint NEW position
+    let params2 = BuybackParams {
+        sell_token, start_time: 0, end_time: end_time + 1 + defaults::MIN_DURATION + 100,
+    };
+    dispatcher.buy_back(params2);
+
+    // Verify new position was minted
+    assert(dispatcher.get_position_token_id(sell_token) == 99, 'New position ID should be 99');
+    assert(dispatcher.get_active_buy_token(sell_token) == new_buyback_token, 'New buy token');
+    assert(dispatcher.get_active_fee(sell_token) == 999999, 'New fee');
+}
+

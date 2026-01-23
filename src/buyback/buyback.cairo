@@ -322,12 +322,14 @@ pub mod BuybackComponent {
             // Update bookmark
             self.Buyback_order_bookmark.write(sell_token, order_number);
 
-            // If all orders have been claimed, clear active buy_token and fee
-            // This allows config changes for future orders
+            // If all orders have been claimed, clear active buy_token, fee, and position_id
+            // This allows config changes for future orders and ensures a new position is minted
+            // for the potentially different buy_token/fee combination
             if order_number == order_count {
                 let zero_address: ContractAddress = Zero::zero();
                 self.Buyback_active_buy_token.write(sell_token, zero_address);
                 self.Buyback_active_fee.write(sell_token, 0);
+                self.Buyback_position_token_id.write(sell_token, 0);
             }
 
             // Emit event
