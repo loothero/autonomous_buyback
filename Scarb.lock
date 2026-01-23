@@ -15,7 +15,7 @@ dependencies = [
 [[package]]
 name = "ekubo"
 version = "0.1.0"
-source = "git+https://github.com/EkuboProtocol/starknet-contracts.git?branch=scarb-2-15-0#2fa2e2bffe435a1c9dbd29b3bd358bbe0e625bf6"
+source = "git+https://github.com/EkuboProtocol/starknet-contracts.git?tag=v4.0.1#3db234ee0c4a9e1709677f6180186d37a356a14e"
 
 [[package]]
 name = "openzeppelin_access"
